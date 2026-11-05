@@ -56,7 +56,6 @@ export function Saida({ b, staff, reload }: { b: OsBundle; staff: Record<string,
   const km = Number(f.km_out);
   const checks = [
     { ok: b.os.checkin_completed_at != null, label: "Check-in concluído" },
-    { ok: b.services.length > 0, label: "Serviços executados registrados (aba Execução)" },
     { ok: pendingServices.length === 0, label: `Nenhum serviço com situação "Pendente"${pendingServices.length ? ` (${pendingServices.length})` : ""}` },
     { ok: /^\d+$/.test(f.km_out) && km >= kmIn, label: `Quilometragem final informada e ≥ ${kmIn.toLocaleString("pt-BR")} km` },
     { ok: !!f.mechanic_id, label: "Mecânico responsável" },
