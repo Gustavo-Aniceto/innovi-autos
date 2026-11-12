@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { useOnline } from "../lib/hooks";
+import { InstallApp } from "./InstallApp";
 
 const Icon = {
   painel: <path d="M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z" />,
@@ -10,6 +11,7 @@ const Icon = {
   pedidos: <path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Zm-2 12H6v-2h12v2Zm0-3H6V9h12v2Zm0-3H6V6h12v2Z" />,
   clientes: <path d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm0 2c-2.7 0-8 1.3-8 4v3h8v-3c0-1.1.4-2.1 1.2-3A11 11 0 0 0 8 13Zm8 0c-2.7 0-8 1.3-8 4v3h16v-3c0-2.7-5.3-4-8-4Z" />,
   usuarios: <path d="M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4Zm0 6a3 3 0 1 1-3 3 3 3 0 0 1 3-3Zm0 13.2a8.9 8.9 0 0 1-6-4.1c0-2 4-3.1 6-3.1s6 1.1 6 3.1a8.9 8.9 0 0 1-6 4.1Z" />,
+  financeiro: <path fillRule="evenodd" d="M2 6h20v12H2V6Zm10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />,
   auditoria: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm-1 7V3.5L18.5 9H13ZM8 13h8v2H8v-2Zm0 4h8v2H8v-2Z" />,
 };
 const Svg = ({ d }: { d: JSX.Element }) => <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden fill="currentColor">{d}</svg>;
@@ -33,6 +35,7 @@ export function Layout() {
     { to: "/sistema/solicitacoes", label: "Pedidos", icon: Icon.pedidos },
     ...(isMaster
       ? [
+          { to: "/sistema/financeiro", label: "Financeiro", icon: Icon.financeiro },
           { to: "/sistema/usuarios", label: "Usuários", icon: Icon.usuarios },
           { to: "/sistema/auditoria", label: "Auditoria", icon: Icon.auditoria },
         ]
@@ -61,6 +64,7 @@ export function Layout() {
         <div className="sidebar-user">
           <p className="user-name">{profile?.full_name}</p>
           <p className="user-role">{isMaster ? "Administrador Master" : "Mecânico"}</p>
+          <InstallApp />
           <NavLink to="/sistema/trocar-senha" className="sidebar-link">Alterar minha senha</NavLink>
           <button className="btn btn-ghost-dark" onClick={handleSignOut}>Sair</button>
         </div>
@@ -69,6 +73,7 @@ export function Layout() {
       <header className="topbar">
         <span className="brand-mark" aria-hidden>IA</span>
         <span className="topbar-title">Innovi Autos</span>
+        <InstallApp small />
         <button className="btn btn-ghost-dark btn-sm" onClick={handleSignOut}>Sair</button>
       </header>
 

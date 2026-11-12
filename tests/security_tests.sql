@@ -220,6 +220,89 @@ select pg_temp.expect_fail($t$insert into public.contact_requests (name, phone, 
 select pg_temp.expect_fail($t$select public.search_service_orders('', null)$t$, 'site público buscando OS');
 reset role;
 
+-- ---------- Migração 8: Financeiro (somente MasterAdm) ----------
+-- OS de teste: orçamento aprovado de 300,00 (v1)
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check($t$select count(*) = 1 and bool_and(amount_due = 300 and amount_paid = 0 and situation = 'sem_pagamento') from public.finance_os_overview()$t$, 'master consulta a visão geral: OS com orçamento aprovado de 300 e nada pago');
+select pg_temp.expect_ok($t$insert into public.finance_payments (service_order_id, method, amount) values ('30000000-0000-0000-0000-000000000001','pix',100)$t$, 'master registra pagamento em Pix');
+select pg_temp.expect_ok($t$insert into public.finance_payments (service_order_id, method, amount, card_fee_amount, card_installments) values ('30000000-0000-0000-0000-000000000001','credito',100,3.50,3)$t$, 'master registra crédito com taxa e parcelas');
+select pg_temp.check($t$select net_amount = 96.50 from public.finance_payments where method = 'credito'$t$, 'valor líquido = cobrado − taxa');
+select pg_temp.check($t$select created_by = auth.uid() from public.finance_payments where method = 'pix'$t$, 'autoria do pagamento imposta pelo servidor');
+select pg_temp.expect_fail($t$insert into public.finance_payments (service_order_id, method, amount) values ('30000000-0000-0000-0000-000000000001','pix',0)$t$, 'pagamento com valor zero');
+select pg_temp.expect_fail($t$insert into public.finance_payments (service_order_id, method, amount) values ('30000000-0000-0000-0000-000000000001','pix',-5)$t$, 'pagamento com valor negativo');
+select pg_temp.expect_fail($t$insert into public.finance_payments (service_order_id, method, amount, card_fee_amount) values ('30000000-0000-0000-0000-000000000001','credito',10,11)$t$, 'taxa maior que o valor');
+select pg_temp.expect_fail($t$insert into public.finance_payments (service_order_id, method, amount, card_fee_amount) values ('30000000-0000-0000-0000-000000000001','pix',100,2)$t$, 'taxa de maquininha em Pix');
+select pg_temp.expect_fail($t$insert into public.finance_payments (service_order_id, method, amount, card_installments) values ('30000000-0000-0000-0000-000000000001','debito',100,2)$t$, 'parcelas do cartão em débito');
+select pg_temp.expect_fail($t$insert into public.finance_payments (service_order_id, method, amount) values ('30000000-0000-0000-0000-0000000000ff','pix',10)$t$, 'pagamento para OS inexistente');
+select pg_temp.check($t$select amount_due = 300 and amount_paid = 200 and balance = 100 and situation = 'parcial' from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'visão geral: devido 300, pago 200, falta 100, parcial');
+select pg_temp.check($t$select amount_net = 196.50 from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'visão geral: líquido recebido considera a taxa');
+-- Versões do orçamento que contam
+select pg_temp.expect_fail($t$insert into public.finance_os_settings (service_order_id, counted_quote_ids) values ('30000000-0000-0000-0000-000000000001', array['70000000-0000-0000-0000-0000000000ff']::uuid[])$t$, 'contar versão de orçamento inexistente');
+select pg_temp.expect_ok($t$insert into public.finance_os_settings (service_order_id, counted_quote_ids) values ('30000000-0000-0000-0000-000000000001', array['70000000-0000-0000-0000-000000000001']::uuid[])$t$, 'master escolhe a versão que conta');
+select pg_temp.check($t$select amount_due = 300 from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'valor devido continua 300 com a versão escolhida');
+-- Plano de parcelas
+select pg_temp.expect_fail($t$select public.finance_create_installment_plan('30000000-0000-0000-0000-000000000001', 100, 1, current_date)$t$, 'plano com 1 parcela');
+select pg_temp.expect_fail($t$select public.finance_create_installment_plan('30000000-0000-0000-0000-000000000001', 0, 3, current_date)$t$, 'plano com valor zero');
+select pg_temp.expect_ok($t$select public.finance_create_installment_plan('30000000-0000-0000-0000-000000000001', 100, 3, current_date - 35)$t$, 'master gera plano de 3 parcelas');
+select pg_temp.check($t$select count(*) = 3 and sum(amount) = 100 and min(amount) = 33.33 and max(amount) = 33.34 from public.finance_installments where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'parcelas somam exatamente o total (centavos na última)');
+select pg_temp.check($t$select overdue_installments = 66.66 and pending_installments = 100 from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'parcelas vencidas sem baixa aparecem como atrasadas');
+-- Baixa de parcela
+select pg_temp.expect_ok($t$select public.finance_receive_installment((select id from public.finance_installments where service_order_id = '30000000-0000-0000-0000-000000000001' and number = 1), 'pix', current_date, null, null, null, 'Parcela 1')$t$, 'master dá baixa na parcela 1');
+select pg_temp.expect_fail($t$select public.finance_receive_installment((select id from public.finance_installments where service_order_id = '30000000-0000-0000-0000-000000000001' and number = 1), 'pix', current_date, null, null, null, null)$t$, 'baixa repetida na mesma parcela');
+select pg_temp.check($t$select amount_paid = 233.33 and pending_installments = 66.67 and situation = 'parcial' from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'baixa atualiza pago e parcelas pendentes');
+select pg_temp.expect_ok($t$select public.finance_create_installment_plan('30000000-0000-0000-0000-000000000001', 66.67, 2, current_date + 10)$t$, 'refazer o plano mantém a parcela já recebida');
+select pg_temp.check($t$select count(*) = 3 and count(*) filter (where payment_id is not null) = 1 and max(number) = 3 from public.finance_installments where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'só parcelas não recebidas foram substituídas');
+select pg_temp.check($t$select coalesce(sum(expected + overdue), 0) = 66.67 and coalesce(sum(received), 0) = 233.33 from public.finance_monthly(current_date - 90, current_date + 200)$t$, 'resumo mensal: a receber e recebido batem com os lançamentos');
+select pg_temp.expect_fail($t$select * from public.finance_monthly(current_date, current_date - 1)$t$, 'período invertido no resumo mensal');
+select pg_temp.expect_ok($t$insert into public.finance_payments (service_order_id, method, amount) values ('30000000-0000-0000-0000-000000000001','dinheiro',66.67)$t$, 'master registra o restante em dinheiro');
+select pg_temp.check($t$select situation = 'quitada' and balance = 0 from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'OS quitada');
+-- Corrigir e excluir pagamentos (ações das telas do financeiro)
+select pg_temp.expect_ok($t$update public.finance_payments set amount = 60, notes = 'corrigido' where method = 'dinheiro' and service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'master corrige o valor de um pagamento');
+select pg_temp.check($t$select amount_paid = 293.33 and balance = 6.67 and situation = 'parcial' from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'correção reflete na visão geral (volta a ficar parcial)');
+select pg_temp.expect_fail($t$update public.finance_payments set card_fee_amount = 5 where method = 'dinheiro' and service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'corrigir colocando taxa de maquininha em dinheiro');
+select pg_temp.check($t$select count(*) = 1 from public.finance_payments where notes = 'corrigido' and created_by = auth.uid()$t$, 'correção mantém a autoria original');
+select pg_temp.expect_ok($t$delete from public.finance_payments where id = (select payment_id from public.finance_installments where service_order_id = '30000000-0000-0000-0000-000000000001' and number = 1)$t$, 'master exclui o pagamento que deu baixa na parcela 1');
+select pg_temp.check($t$select payment_id is null from public.finance_installments where service_order_id = '30000000-0000-0000-0000-000000000001' and number = 1$t$, 'a parcela 1 volta a ficar não recebida');
+select pg_temp.check($t$select amount_paid = 260 and pending_installments = 100 from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'visão geral após excluir: pago 260 e parcelas pendentes 100');
+select pg_temp.check($t$select exists (select 1 from public.audit_logs where entity = 'finance_payments' and action = 'delete' and actor_id = auth.uid())$t$, 'exclusão de pagamento fica na auditoria');
+-- Divisão em parcelas igual à da tela (centavos; resto na última; mês curto corta no último dia)
+select pg_temp.expect_ok($t$select public.finance_create_installment_plan('30000000-0000-0000-0000-000000000001', 1000, 3, date '2027-01-31')$t$, 'plano de 1000 em 3 a partir de 31/01');
+select pg_temp.check($t$select array_agg(amount order by number) = array[333.33, 333.33, 333.34]::numeric[] and array_agg(due_date order by number) = array[date '2027-01-31', date '2027-02-28', date '2027-03-31'] from public.finance_installments where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'parcelas: 333,33 + 333,33 + 333,34 vencendo 31/01, 28/02 e 31/03');
+select pg_temp.expect_ok($t$select public.finance_create_installment_plan('30000000-0000-0000-0000-000000000001', 1234.57, 7, date '2027-03-10')$t$, 'plano de 1234,57 em 7');
+select pg_temp.check($t$select sum(amount) = 1234.57 and min(amount) = 176.36 and max(amount) = 176.41 from public.finance_installments where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'sete parcelas fecham em 1234,57 (176,36 e a última 176,41)');
+select pg_temp.check($t$select public.finance_today() = (now() at time zone 'America/Sao_Paulo')::date$t$, 'finance_today usa a data de São Paulo');
+select pg_temp.check($t$select exists (select 1 from public.audit_logs where entity = 'finance_payments' and action = 'insert' and actor_id = auth.uid())$t$, 'pagamentos aparecem na auditoria com o autor');
+select pg_temp.expect_fail($t$update public.audit_logs set result = 'erro' where entity = 'finance_payments'$t$, 'auditoria financeira continua imutável');
+reset role;
+
+-- Mecânico: nada de financeiro (dados, escrita nem funções)
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check($t$select count(*) = 0 from public.finance_payments$t$, 'mecânico não lê pagamentos');
+select pg_temp.check($t$select count(*) = 0 from public.finance_installments$t$, 'mecânico não lê parcelas');
+select pg_temp.check($t$select count(*) = 0 from public.finance_os_settings$t$, 'mecânico não lê ajustes financeiros');
+select pg_temp.expect_fail($t$insert into public.finance_payments (service_order_id, method, amount) values ('30000000-0000-0000-0000-000000000001','pix',50)$t$, 'mecânico registrando pagamento');
+select pg_temp.expect_fail($t$insert into public.finance_installments (service_order_id, number, due_date, amount) values ('30000000-0000-0000-0000-000000000001', 9, current_date, 10)$t$, 'mecânico criando parcela');
+select pg_temp.expect_fail($t$insert into public.finance_os_settings (service_order_id) values ('30000000-0000-0000-0000-000000000001')$t$, 'mecânico criando ajuste financeiro');
+select pg_temp.check($t$with u as (update public.finance_payments set amount = 1 returning 1) select count(*) = 0 from u$t$, 'mecânico não altera pagamentos');
+select pg_temp.check($t$with d as (delete from public.finance_payments returning 1) select count(*) = 0 from d$t$, 'mecânico não exclui pagamentos');
+select pg_temp.expect_fail($t$select * from public.finance_os_overview()$t$, 'mecânico consultando visão geral financeira');
+select pg_temp.expect_fail($t$select * from public.finance_monthly(current_date - 30, current_date)$t$, 'mecânico consultando resumo mensal');
+select pg_temp.expect_fail($t$select public.finance_create_installment_plan('30000000-0000-0000-0000-000000000001', 100, 3, current_date)$t$, 'mecânico gerando plano de parcelas');
+select pg_temp.expect_fail($t$select public.finance_receive_installment(gen_random_uuid(), 'pix', current_date, 10, 0, null, null)$t$, 'mecânico dando baixa em parcela');
+select pg_temp.expect_fail($t$select public.finance_os_due('30000000-0000-0000-0000-000000000001')$t$, 'mecânico chamando o cálculo interno do valor da OS');
+reset role;
+
+-- Visitante (site público): nada de financeiro
+select set_config('request.jwt.claims', '', true);
+set local role anon;
+select pg_temp.expect_fail($t$select * from public.finance_payments$t$, 'visitante lendo pagamentos');
+select pg_temp.expect_fail($t$select * from public.finance_installments$t$, 'visitante lendo parcelas');
+select pg_temp.expect_fail($t$insert into public.finance_payments (service_order_id, method, amount) values ('30000000-0000-0000-0000-000000000001','pix',50)$t$, 'visitante registrando pagamento');
+select pg_temp.expect_fail($t$select * from public.finance_os_overview()$t$, 'visitante consultando visão geral financeira');
+select pg_temp.expect_fail($t$select * from public.finance_monthly(current_date - 30, current_date)$t$, 'visitante consultando resumo mensal');
+select pg_temp.expect_fail($t$select public.finance_today()$t$, 'visitante chamando a função de data do financeiro');
+reset role;
+
 -- Usuário desativado perde acesso na hora
 update public.profiles set active = false where login = 'mecanico1';
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');

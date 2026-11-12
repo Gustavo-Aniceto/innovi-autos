@@ -22,6 +22,8 @@ import { Documento } from "./pages/Documento";
 import { HistoricoDoc } from "./pages/HistoricoDoc";
 import { Solicitacoes } from "./pages/Solicitacoes";
 import { FotosConfig } from "./pages/FotosConfig";
+import { Financeiro } from "./pages/Financeiro";
+import { FinanceiroOS } from "./pages/FinanceiroOS";
 import { SiteLayout } from "./site/SiteLayout";
 import { SiteHome } from "./site/SiteHome";
 import { SiteServicos } from "./site/SiteServicos";
@@ -62,6 +64,8 @@ export default function App() {
               <Route path="usuarios" element={<RequireMaster><Usuarios /></RequireMaster>} />
               <Route path="auditoria" element={<RequireMaster><Auditoria /></RequireMaster>} />
               <Route path="fotos" element={<RequireMaster><FotosConfig /></RequireMaster>} />
+              <Route path="financeiro" element={<RequireMaster><Financeiro /></RequireMaster>} />
+              <Route path="financeiro/os/:id" element={<RequireMaster><FinanceiroOS /></RequireMaster>} />
               <Route path="*" element={<NaoEncontrada />} />
             </Route>
             <Route path="*" element={<SiteLayout />}><Route path="*" element={<NaoEncontrada />} /></Route>
