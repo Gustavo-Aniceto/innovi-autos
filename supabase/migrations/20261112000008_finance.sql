@@ -6,11 +6,17 @@
 
 create type public.payment_method as enum ('pix', 'dinheiro', 'debito', 'credito');
 
+-- "Hoje" no fuso da oficina (o banco roda em UTC: entre 21h e 0h current_date já seria o dia seguinte)
+create or replace function public.finance_today()
+returns date language sql stable set search_path = public as $$
+  select (now() at time zone 'America/Sao_Paulo')::date
+$$;
+
 -- ---------- Pagamentos recebidos ----------
 create table public.finance_payments (
   id                uuid primary key default gen_random_uuid(),
   service_order_id  uuid not null references public.service_orders(id) on delete restrict,
-  paid_at           date not null default current_date,
+  paid_at           date not null default public.finance_today(),
   method            public.payment_method not null,
   amount            numeric(12,2) not null check (amount > 0),                       -- valor cobrado (bruto)
   card_fee_amount   numeric(12,2) not null default 0 check (card_fee_amount >= 0),   -- taxa da maquininha em R$
@@ -152,7 +158,7 @@ begin
   left join lateral (select sum(fp.amount) as gross, sum(fp.net_amount) as net
                      from public.finance_payments fp where fp.service_order_id = o.id) p on true
   left join lateral (select sum(fi.amount) filter (where fi.payment_id is null) as pending,
-                            sum(fi.amount) filter (where fi.payment_id is null and fi.due_date < current_date) as overdue,
+                            sum(fi.amount) filter (where fi.payment_id is null and fi.due_date < public.finance_today()) as overdue,
                             min(fi.due_date) filter (where fi.payment_id is null) as next_due
                      from public.finance_installments fi where fi.service_order_id = o.id) i on true
   where d.due > 0 or p.gross is not null
@@ -178,10 +184,10 @@ begin
          coalesce((select sum(fp.net_amount) from public.finance_payments fp
                    where date_trunc('month', fp.paid_at::timestamp) = m), 0),
          coalesce((select sum(fi.amount) from public.finance_installments fi
-                   where fi.payment_id is null and fi.due_date >= current_date
+                   where fi.payment_id is null and fi.due_date >= public.finance_today()
                      and date_trunc('month', fi.due_date::timestamp) = m), 0),
          coalesce((select sum(fi.amount) from public.finance_installments fi
-                   where fi.payment_id is null and fi.due_date < current_date
+                   where fi.payment_id is null and fi.due_date < public.finance_today()
                      and date_trunc('month', fi.due_date::timestamp) = m), 0)
   from generate_series(date_trunc('month', p_from::timestamp), date_trunc('month', p_to::timestamp), interval '1 month') as m
   order by 1;
@@ -234,7 +240,7 @@ begin
   if v_inst.payment_id is not null then raise exception 'Esta parcela já foi recebida.'; end if;
 
   insert into public.finance_payments (service_order_id, paid_at, method, amount, card_fee_amount, card_installments, notes)
-  values (v_inst.service_order_id, coalesce(p_paid_at, current_date), p_method,
+  values (v_inst.service_order_id, coalesce(p_paid_at, public.finance_today()), p_method,
           coalesce(p_amount, v_inst.amount), coalesce(p_card_fee, 0), p_card_installments, p_notes)
   returning id into v_payment;
 
@@ -244,13 +250,13 @@ end $$;
 
 -- ---------- Permissões das funções (ver migração 5): só usuário logado; cada função confere o master ----------
 revoke execute on function
-  public.finance_os_due(uuid), public.finance_os_overview(), public.finance_monthly(date, date),
+  public.finance_today(), public.finance_os_due(uuid), public.finance_os_overview(), public.finance_monthly(date, date),
   public.finance_create_installment_plan(uuid, numeric, int, date),
   public.finance_receive_installment(uuid, public.payment_method, date, numeric, numeric, smallint, text),
   public.tg_finance_installment_check(), public.tg_finance_settings_check()
 from public, anon, authenticated;
 grant execute on function
-  public.finance_os_overview(), public.finance_monthly(date, date),
+  public.finance_today(), public.finance_os_overview(), public.finance_monthly(date, date),
   public.finance_create_installment_plan(uuid, numeric, int, date),
   public.finance_receive_installment(uuid, public.payment_method, date, numeric, numeric, smallint, text)
 to authenticated;

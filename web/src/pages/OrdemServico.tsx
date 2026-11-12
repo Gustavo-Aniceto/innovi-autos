@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { formatDateTime, formatPlate } from "../lib/format";
+import { useAuth } from "../lib/auth";
 import { usePhotoCategories, useStaff } from "../lib/data";
 import { OS_STATUS } from "../lib/types";
 import { StatusBadge } from "../components/StatusBadge";
@@ -22,6 +23,7 @@ type Tab = (typeof TABS)[number]["id"];
 
 export function OrdemServico() {
   const { id } = useParams();
+  const { profile } = useAuth();
   const [params, setParams] = useSearchParams();
   const tab = (params.get("aba") as Tab) ?? "resumo";
   const { data: b, error, reload } = useOs(id);
@@ -44,7 +46,10 @@ export function OrdemServico() {
           </p>
           <p className="muted small">Aberta em {formatDateTime(b.os.opened_at)}{b.os.closed_at ? `, encerrada em ${formatDateTime(b.os.closed_at)}` : ""}</p>
         </div>
-        <StatusBadge status={b.os.status} />
+        <div className="row-actions">
+          <StatusBadge status={b.os.status} />
+          {profile?.role === "master" && <Link className="btn btn-secondary btn-sm" to={`/sistema/financeiro/os/${b.os.id}`}>Ver financeiro</Link>}
+        </div>
       </header>
 
       {!b.os.checkin_completed_at && b.os.status !== "cancelado" && (
