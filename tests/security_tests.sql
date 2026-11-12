@@ -273,6 +273,23 @@ select pg_temp.check($t$select sum(amount) = 1234.57 and min(amount) = 176.36 an
 select pg_temp.check($t$select public.finance_today() = (now() at time zone 'America/Sao_Paulo')::date$t$, 'finance_today usa a data de São Paulo');
 select pg_temp.check($t$select exists (select 1 from public.audit_logs where entity = 'finance_payments' and action = 'insert' and actor_id = auth.uid())$t$, 'pagamentos aparecem na auditoria com o autor');
 select pg_temp.expect_fail($t$update public.audit_logs set result = 'erro' where entity = 'finance_payments'$t$, 'auditoria financeira continua imutável');
+-- Etapas 2 a 4: despesas, perdas, pagamentos a mecânicos, lucro por OS e relatórios
+select pg_temp.expect_ok($t$insert into public.finance_expenses (category, description, amount, service_order_id) values ('pecas_insumos','Pastilha de freio',40,'30000000-0000-0000-0000-000000000001')$t$, 'master registra despesa ligada à OS');
+select pg_temp.expect_ok($t$insert into public.finance_expenses (category, description, amount) values ('aluguel','Aluguel do galpão',100)$t$, 'master registra despesa geral');
+select pg_temp.expect_fail($t$insert into public.finance_expenses (category, description, amount) values ('aluguel','Aluguel',0)$t$, 'despesa com valor zero');
+select pg_temp.expect_fail($t$insert into public.finance_expenses (category, description, amount) values ('aluguel','x',10)$t$, 'despesa com descrição curta demais');
+select pg_temp.expect_fail($t$insert into public.finance_expenses (category, description, amount, service_order_id) values ('aluguel','Teste',10,'30000000-0000-0000-0000-0000000000ff')$t$, 'despesa ligada a OS inexistente');
+select pg_temp.expect_ok($t$insert into public.finance_tool_losses (tool_name, amount, mechanic_id, notes) values ('Chave de impacto',80,'00000000-0000-0000-0000-00000000000b','extraviada')$t$, 'master registra perda de ferramenta');
+select pg_temp.expect_fail($t$insert into public.finance_tool_losses (tool_name, amount) values ('Chave',-1)$t$, 'perda com valor negativo');
+select pg_temp.expect_ok($t$insert into public.finance_staff_payments (mechanic_id, kind, reference_month, amount) values ('00000000-0000-0000-0000-00000000000b','salario',date_trunc('month', now() at time zone 'America/Sao_Paulo')::date,1500)$t$, 'master registra salário de mecânico');
+select pg_temp.expect_fail($t$insert into public.finance_staff_payments (mechanic_id, kind, reference_month, amount) values ('00000000-0000-0000-0000-00000000000b','salario',date '2027-01-15',100)$t$, 'mês de referência que não é o dia 1');
+select pg_temp.expect_fail($t$insert into public.finance_staff_payments (mechanic_id, kind, reference_month, amount) values ('00000000-0000-0000-0000-0000000000ff','salario',date '2027-01-01',100)$t$, 'pagamento para usuário inexistente');
+select pg_temp.check($t$select cost = 40 and profit = received_net - 40 and received_net = (select amount_net from public.finance_os_overview() where service_order_id = '30000000-0000-0000-0000-000000000001') from public.finance_os_profit() where service_order_id = '30000000-0000-0000-0000-000000000001'$t$, 'lucro da OS = recebido líquido − custos ligados a ela');
+select pg_temp.check($t$select expenses = 140 and tool_losses = 80 and staff = 1500 and result = revenue - 1720 and revenue = (select coalesce(sum(net_amount),0) from public.finance_payments where date_trunc('month', paid_at::timestamp) = date_trunc('month', finance_today()::timestamp)) from public.finance_report_monthly(finance_today() - 1, finance_today()) where month = date_trunc('month', finance_today()::timestamp)::date$t$, 'relatório mensal soma entradas e saídas');
+select pg_temp.check($t$select count(*) = 2 and sum(total) = 140 and (array_agg(category order by total desc))[1] = 'aluguel' from public.finance_expense_by_category(finance_today() - 30, finance_today())$t$, 'despesas por categoria');
+select pg_temp.expect_fail($t$select * from public.finance_report_monthly(current_date, current_date - 1)$t$, 'período invertido no relatório');
+select pg_temp.check($t$select exists (select 1 from public.audit_logs where entity = 'finance_staff_payments' and action = 'insert' and actor_id = auth.uid())$t$, 'pagamentos a mecânicos auditados');
+select pg_temp.expect_ok($t$delete from public.finance_tool_losses$t$, 'master exclui perda registrada por engano');
 reset role;
 
 -- Mecânico: nada de financeiro (dados, escrita nem funções)
@@ -290,6 +307,14 @@ select pg_temp.expect_fail($t$select * from public.finance_monthly(current_date 
 select pg_temp.expect_fail($t$select public.finance_create_installment_plan('30000000-0000-0000-0000-000000000001', 100, 3, current_date)$t$, 'mecânico gerando plano de parcelas');
 select pg_temp.expect_fail($t$select public.finance_receive_installment(gen_random_uuid(), 'pix', current_date, 10, 0, null, null)$t$, 'mecânico dando baixa em parcela');
 select pg_temp.expect_fail($t$select public.finance_os_due('30000000-0000-0000-0000-000000000001')$t$, 'mecânico chamando o cálculo interno do valor da OS');
+select pg_temp.check($t$select count(*) = 0 from public.finance_expenses$t$, 'mecânico não lê despesas');
+select pg_temp.check($t$select count(*) = 0 from public.finance_tool_losses$t$, 'mecânico não lê perdas de ferramenta');
+select pg_temp.check($t$select count(*) = 0 from public.finance_staff_payments$t$, 'mecânico não lê pagamentos de salário');
+select pg_temp.expect_fail($t$insert into public.finance_expenses (category, description, amount) values ('outros','Teste',5)$t$, 'mecânico registrando despesa');
+select pg_temp.expect_fail($t$insert into public.finance_staff_payments (mechanic_id, kind, reference_month, amount) values ('00000000-0000-0000-0000-00000000000b','salario',date '2027-01-01',5)$t$, 'mecânico registrando o próprio salário');
+select pg_temp.expect_fail($t$select * from public.finance_os_profit()$t$, 'mecânico consultando lucro por OS');
+select pg_temp.expect_fail($t$select * from public.finance_report_monthly(current_date - 30, current_date)$t$, 'mecânico consultando relatório mensal');
+select pg_temp.expect_fail($t$select * from public.finance_expense_by_category(current_date - 30, current_date)$t$, 'mecânico consultando despesas por categoria');
 reset role;
 
 -- Visitante (site público): nada de financeiro
@@ -301,6 +326,10 @@ select pg_temp.expect_fail($t$insert into public.finance_payments (service_order
 select pg_temp.expect_fail($t$select * from public.finance_os_overview()$t$, 'visitante consultando visão geral financeira');
 select pg_temp.expect_fail($t$select * from public.finance_monthly(current_date - 30, current_date)$t$, 'visitante consultando resumo mensal');
 select pg_temp.expect_fail($t$select public.finance_today()$t$, 'visitante chamando a função de data do financeiro');
+select pg_temp.expect_fail($t$select * from public.finance_expenses$t$, 'visitante lendo despesas');
+select pg_temp.expect_fail($t$select * from public.finance_staff_payments$t$, 'visitante lendo pagamentos de salário');
+select pg_temp.expect_fail($t$select * from public.finance_os_profit()$t$, 'visitante consultando lucro por OS');
+select pg_temp.expect_fail($t$select * from public.finance_report_monthly(current_date - 30, current_date)$t$, 'visitante consultando relatório');
 reset role;
 
 -- Usuário desativado perde acesso na hora

@@ -6,9 +6,10 @@ import { brl } from "../lib/data";
 import { formatPlate } from "../lib/format";
 import {
   FINANCE_SITUATION, formatCalendarDate, monthLabel, monthStart, normalizeText, num,
-  type FinanceMonthRow, type FinanceOsRow,
+  type FinanceMonthRow, type FinanceOsRow, type OsProfit,
 } from "../lib/finance";
 import { BarChart, type ChartPoint } from "../components/BarChart";
+import { FinanceNav } from "../components/FinanceNav";
 
 type Filter = "todas" | "abertas" | "atrasadas" | "quitadas";
 const PAGE = 40;
@@ -25,6 +26,7 @@ const toMonthRow = (r: Record<string, unknown>): FinanceMonthRow => ({
 export function Financeiro() {
   const [rows, setRows] = useState<FinanceOsRow[] | null>(null);
   const [months, setMonths] = useState<FinanceMonthRow[] | null>(null);
+  const [profit, setProfit] = useState<Map<string, OsProfit>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("abertas");
   const [q, setQ] = useState("");
@@ -32,11 +34,14 @@ export function Financeiro() {
 
   const load = useCallback(async () => {
     setError(null);
-    const [o, m] = await Promise.all([
+    const [o, m, pf] = await Promise.all([
       supabase.rpc("finance_os_overview"),
       supabase.rpc("finance_monthly", { p_from: monthStart(-5), p_to: monthStart(11) }),
+      supabase.rpc("finance_os_profit"),
     ]);
-    if (o.error || m.error) { setError(friendlyError(o.error ?? m.error)); return; }
+    if (o.error || m.error || pf.error) { setError(friendlyError(o.error ?? m.error ?? pf.error)); return; }
+    setProfit(new Map((pf.data as Record<string, unknown>[]).map((x) => [String(x.service_order_id),
+      { service_order_id: String(x.service_order_id), received_net: num(x.received_net), cost: num(x.cost), profit: num(x.profit) }])));
     setRows((o.data as Record<string, unknown>[]).map(toOsRow));
     setMonths((m.data as Record<string, unknown>[]).map(toMonthRow));
   }, []);
@@ -84,6 +89,7 @@ export function Financeiro() {
         <h1>Financeiro</h1>
         <button className="btn btn-secondary btn-sm" onClick={load}>Atualizar</button>
       </header>
+      <FinanceNav />
       <p className="muted">Área restrita ao Administrador Master. Valores calculados a partir dos orçamentos aprovados e dos pagamentos registrados.</p>
 
       {error && (
@@ -169,6 +175,7 @@ export function Financeiro() {
                   <p className="fin-row-meta muted small">
                     <span>Valor {brl(r.amount_due)}</span>
                     <span>Pago {brl(r.amount_paid)}</span>
+                    {profit.has(r.service_order_id) && <span>Lucro da OS {brl(profit.get(r.service_order_id)!.profit)}</span>}
                     {r.next_due && <span>Próx. vencimento {formatCalendarDate(r.next_due)}</span>}
                   </p>
                 </div>

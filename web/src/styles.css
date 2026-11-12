@@ -600,3 +600,9 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
   .tabbar::-webkit-scrollbar { display: none; }
   .tab-link { min-width: 64px; }
 }
+
+/* Financeiro: navegação entre áreas */
+.fin-nav { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 16px; }
+.fin-nav a { padding: 8px 14px; border: 1.5px solid #AEB5BC; border-radius: var(--r-sm); text-decoration: none; color: inherit; font-weight: 600; min-height: 40px; display: inline-flex; align-items: center; }
+.fin-nav a.on { background: var(--grafite); color: var(--branco); border-color: var(--grafite); }
+.fin-out-total { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; }

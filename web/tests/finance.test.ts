@@ -1,7 +1,7 @@
 // Regras puras do financeiro. Rodar: npx tsx tests/finance.test.ts
 import {
   addMonths, buildSchedule, feeFromPercent, formatCalendarDate, installmentStatus, monthLabel, monthStart,
-  moneyInput, normalizeText, parseMoney, splitInstallments, todayBR, validatePayment,
+  moneyInput, normalizeText, parseMoney, splitInstallments, todayBR, validatePayment, monthToDate, dateToMonth, validateOutflow, toCsv,
 } from "../src/lib/finance";
 import { compact, niceMax } from "../src/lib/chartMath";
 
@@ -98,6 +98,18 @@ eq("compact 1250", compact(1250), "1,3 mil");
 eq("compact 2000", compact(2000), "2 mil");
 eq("compact 15400", compact(15400), "15 mil");
 eq("compact 2,3 mi", compact(2_300_000), "2,3 mi");
+// ---- saídas e relatórios
+eq("mês do campo → dia 1", monthToDate("2026-11"), "2026-11-01");
+eq("mês inválido", monthToDate("2026-13"), null);
+eq("mês vazio", monthToDate(""), null);
+eq("data → mês", dateToMonth("2026-11-12"), "2026-11");
+eq("saída válida", validateOutflow({ amount: 10, date: "2026-11-12", text: "Peça", textLabel: "Descrição" }), null);
+eq("saída sem valor", validateOutflow({ amount: null, date: "2026-11-12" }), "Informe o valor (ex.: 350,00).");
+eq("saída valor zero", validateOutflow({ amount: 0, date: "2026-11-12" }), "Informe o valor (ex.: 350,00).");
+eq("saída sem data", validateOutflow({ amount: 5, date: "" }), "Informe a data.");
+eq("saída descrição curta", validateOutflow({ amount: 5, date: "2026-11-12", text: "x", textLabel: "Ferramenta" }), "Ferramenta: de 2 a 200 caracteres.");
+eq("csv com BOM e vírgula decimal", toCsv([["Mês", "Valor"], ["nov/26", 1234.5]]), "\uFEFFMês;Valor\r\nnov/26;1234,50");
+eq("csv protege ; e aspas", toCsv([["a;b", 'diz "oi"']]), '\uFEFF"a;b";"diz ""oi"""');
 
 console.log(fail ? `\n${fail} FALHA(S)` : "\nTodos os testes passaram.");
 process.exit(fail ? 1 : 0);

@@ -141,3 +141,48 @@ export function validatePayment(p: { amount: number | null; method: PaymentMetho
   if (p.installments != null && (p.installments < 1 || p.installments > 24)) return "Parcelas do cartão: de 1 a 24.";
   return null;
 }
+
+// ---------- Saídas: despesas, perdas de ferramenta e pagamentos a mecânicos ----------
+export type ExpenseCategory = "aluguel" | "contas" | "pecas_insumos" | "ferramentas" | "impostos_taxas" | "marketing" | "manutencao" | "outros";
+export const EXPENSE_CATEGORIES: Record<ExpenseCategory, string> = {
+  aluguel: "Aluguel", contas: "Contas (luz, água, internet)", pecas_insumos: "Peças e insumos", ferramentas: "Ferramentas e equipamentos",
+  impostos_taxas: "Impostos e taxas", marketing: "Marketing", manutencao: "Manutenção do espaço", outros: "Outros",
+};
+export const EXPENSE_ORDER = Object.keys(EXPENSE_CATEGORIES) as ExpenseCategory[];
+
+export type StaffPaymentKind = "salario" | "adiantamento" | "comissao" | "outro";
+export const STAFF_KINDS: Record<StaffPaymentKind, string> = { salario: "Salário", adiantamento: "Adiantamento", comissao: "Comissão", outro: "Outro" };
+export const STAFF_KIND_ORDER = Object.keys(STAFF_KINDS) as StaffPaymentKind[];
+
+export interface Expense {
+  id: string; expense_date: string; category: ExpenseCategory; description: string; amount: number; service_order_id: string | null;
+}
+export interface ToolLoss { id: string; loss_date: string; tool_name: string; amount: number; mechanic_id: string | null; notes: string | null }
+export interface StaffPayment {
+  id: string; mechanic_id: string; kind: StaffPaymentKind; reference_month: string; paid_at: string; amount: number; notes: string | null;
+}
+export interface ReportRow { month: string; revenue: number; expenses: number; tool_losses: number; staff: number; result: number }
+export interface OsProfit { service_order_id: string; received_net: number; cost: number; profit: number }
+
+/** "2026-11" (campo de mês do navegador) → "2026-11-01"; devolve null se o texto não for um mês. */
+export function monthToDate(v: string): string | null {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(v) ? `${v}-01` : null;
+}
+export const dateToMonth = (iso: string) => iso.slice(0, 7);
+
+/** Valida os campos comuns das saídas (valor, data e texto). Devolve a mensagem de erro ou null. */
+export function validateOutflow(p: { amount: number | null; date: string; text?: string; textLabel?: string }): string | null {
+  if (p.amount == null || p.amount <= 0) return "Informe o valor (ex.: 350,00).";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date)) return "Informe a data.";
+  if (p.text !== undefined && (p.text.trim().length < 2 || p.text.length > 200)) return `${p.textLabel ?? "Descrição"}: de 2 a 200 caracteres.`;
+  return null;
+}
+
+/** CSV no padrão brasileiro: separador ";" e vírgula decimal, com BOM para o Excel abrir os acentos. */
+export function toCsv(rows: (string | number)[][]): string {
+  const cell = (v: string | number) => {
+    const s = typeof v === "number" ? v.toFixed(2).replace(".", ",") : v;
+    return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return "﻿" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
+}

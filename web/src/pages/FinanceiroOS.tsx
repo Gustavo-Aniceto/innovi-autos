@@ -6,7 +6,7 @@ import { brl } from "../lib/data";
 import { formatDate, formatPlate } from "../lib/format";
 import {
   FINANCE_SITUATION, INSTALLMENT_STATUS, PAYMENT_METHODS, formatCalendarDate, installmentStatus, monthLabel, num, round2, todayBR,
-  type FinanceOsRow, type Installment, type Payment,
+  EXPENSE_CATEGORIES, type Expense, type FinanceOsRow, type Installment, type Payment,
 } from "../lib/finance";
 import type { OsStatus } from "../lib/types";
 import { BarChart, type ChartPoint } from "../components/BarChart";
@@ -22,7 +22,7 @@ interface Header {
 }
 interface QuoteLite { id: string; version: number; approved_at: string | null; subtotal: number; discount: number; total: number }
 interface Data {
-  os: Header; payments: Payment[]; installments: Installment[]; counted: string[] | null; quotes: QuoteLite[]; overview: FinanceOsRow | null;
+  os: Header; payments: Payment[]; installments: Installment[]; counted: string[] | null; quotes: QuoteLite[]; overview: FinanceOsRow | null; expenses: Expense[];
 }
 
 const toPayment = (r: Record<string, unknown>): Payment => ({
@@ -31,15 +31,16 @@ const toPayment = (r: Record<string, unknown>): Payment => ({
 const toInstallment = (r: Record<string, unknown>): Installment => ({ ...(r as unknown as Installment), amount: num(r.amount) });
 
 async function fetchAll(id: string): Promise<Data> {
-  const [os, pay, ins, set, quo, ov] = await Promise.all([
+  const [os, pay, ins, set, quo, ov, exp] = await Promise.all([
     supabase.from("service_orders").select("id, number, status, opened_at, customers(id, full_name), vehicles(id, plate_normalized, brand, model)").eq("id", id).single(),
     supabase.from("finance_payments").select("*").eq("service_order_id", id).order("paid_at", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("finance_installments").select("*").eq("service_order_id", id).order("number"),
     supabase.from("finance_os_settings").select("counted_quote_ids").eq("service_order_id", id).maybeSingle(),
     supabase.from("quotes").select("id, version, discount_amount, approved_at, quote_items(total, approved)").eq("service_order_id", id).eq("status", "aprovado").order("version"),
     supabase.rpc("finance_os_overview"),
+    supabase.from("finance_expenses").select("*").eq("service_order_id", id).order("expense_date", { ascending: false }),
   ]);
-  const err = [os, pay, ins, set, quo, ov].find((r) => r.error)?.error;
+  const err = [os, pay, ins, set, quo, ov, exp].find((r) => r.error)?.error;
   if (err) throw err;
   const quotes = ((quo.data ?? []) as Record<string, unknown>[]).map((q) => {
     const items = (q.quote_items ?? []) as { total: number; approved: boolean }[];
@@ -54,6 +55,7 @@ async function fetchAll(id: string): Promise<Data> {
     installments: ((ins.data ?? []) as Record<string, unknown>[]).map(toInstallment),
     counted: ((set.data as { counted_quote_ids: string[] | null } | null)?.counted_quote_ids) ?? null,
     quotes,
+    expenses: ((exp.data ?? []) as Record<string, unknown>[]).map((e) => ({ ...(e as unknown as Expense), amount: num(e.amount) })),
     overview: row
       ? { ...(row as unknown as FinanceOsRow), amount_due: num(row.amount_due), amount_paid: num(row.amount_paid), amount_net: num(row.amount_net),
           balance: num(row.balance), pending_installments: num(row.pending_installments), overdue_installments: num(row.overdue_installments) }
@@ -107,7 +109,8 @@ export function FinanceiroOS() {
   if (error && !data) return <div className="page"><p className="form-error">{error} <button className="btn btn-link" onClick={reload}>Tentar de novo</button></p></div>;
   if (!data) return <div className="page"><p className="muted">Carregando…</p></div>;
 
-  const { os, payments, installments, quotes, overview } = data;
+  const { os, payments, installments, quotes, overview, expenses } = data;
+  const cost = round2(expenses.reduce((t, e) => t + e.amount, 0));
   const due = overview?.amount_due ?? 0;
   const paid = overview?.amount_paid ?? 0;
   const net = overview?.amount_net ?? 0;
@@ -187,8 +190,31 @@ export function FinanceiroOS() {
             {paid !== net && <span className="muted small">Líquido de taxas: {brl(net)}</span>}
           </div>
           <div className={`tile ${balance > 0 ? "tile-wait" : "tile-done"}`}><span className="tile-value">{brl(balance)}</span><span className="tile-label">Falta receber</span></div>
+          <div className={`tile ${net - cost < 0 ? "tile-stop" : "tile-work"}`}>
+            <span className="tile-value">{brl(round2(net - cost))}</span><span className="tile-label">Lucro da OS</span>
+            <span className="muted small">Recebido líquido {brl(net)} − custos {brl(cost)}</span>
+          </div>
           {overdue > 0 && <div className="tile tile-stop"><span className="tile-value">{brl(overdue)}</span><span className="tile-label">Parcelas em atraso</span></div>}
         </div>
+      </section>
+
+      <section aria-labelledby="h-os-custos">
+        <h2 id="h-os-custos" className="section-title">Custos ligados a esta OS</h2>
+        {expenses.length === 0 ? (
+          <p className="empty">Nenhum custo ligado. Registre em <Link to="/sistema/financeiro/saidas">Saídas</Link> e escolha esta OS para ver o lucro dela.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th className="money">Valor</th></tr></thead>
+              <tbody>
+                {expenses.map((e) => (
+                  <tr key={e.id}><td className="nowrap">{formatCalendarDate(e.expense_date)}</td><td>{EXPENSE_CATEGORIES[e.category]}</td>
+                    <td>{e.description}</td><td className="money">{brl(e.amount)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="panel" aria-labelledby="h-os-valor">
