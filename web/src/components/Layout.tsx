@@ -12,6 +12,7 @@ const Icon = {
   clientes: <path d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm0 2c-2.7 0-8 1.3-8 4v3h8v-3c0-1.1.4-2.1 1.2-3A11 11 0 0 0 8 13Zm8 0c-2.7 0-8 1.3-8 4v3h16v-3c0-2.7-5.3-4-8-4Z" />,
   usuarios: <path d="M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4Zm0 6a3 3 0 1 1-3 3 3 3 0 0 1 3-3Zm0 13.2a8.9 8.9 0 0 1-6-4.1c0-2 4-3.1 6-3.1s6 1.1 6 3.1a8.9 8.9 0 0 1-6 4.1Z" />,
   financeiro: <path fillRule="evenodd" d="M2 6h20v12H2V6Zm10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />,
+  ponto: <path fillRule="evenodd" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 5h-2v6l5 3 1-1.7-4-2.4V7Z" />,
   auditoria: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm-1 7V3.5L18.5 9H13ZM8 13h8v2H8v-2Zm0 4h8v2H8v-2Z" />,
 };
 const Svg = ({ d }: { d: JSX.Element }) => <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden fill="currentColor">{d}</svg>;
@@ -33,6 +34,7 @@ export function Layout() {
     { to: "/sistema/ordens", label: "Ordens", icon: Icon.ordens },
     { to: "/sistema/clientes", label: "Clientes", icon: Icon.clientes },
     { to: "/sistema/solicitacoes", label: "Pedidos", icon: Icon.pedidos },
+    { to: "/sistema/ponto", label: "Ponto", icon: Icon.ponto },
     ...(isMaster
       ? [
           { to: "/sistema/financeiro", label: "Financeiro", icon: Icon.financeiro },

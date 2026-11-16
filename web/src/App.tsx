@@ -22,6 +22,7 @@ import { Documento } from "./pages/Documento";
 import { HistoricoDoc } from "./pages/HistoricoDoc";
 import { Solicitacoes } from "./pages/Solicitacoes";
 import { FotosConfig } from "./pages/FotosConfig";
+import { Ponto } from "./pages/Ponto";
 import { Financeiro } from "./pages/Financeiro";
 import { FinanceiroOS } from "./pages/FinanceiroOS";
 import { FinanceiroSaidas } from "./pages/FinanceiroSaidas";
@@ -63,6 +64,7 @@ export default function App() {
               <Route path="checkin/novo" element={<CheckinWizard />} />
               <Route path="checkin/:osId" element={<CheckinWizard />} />
               <Route path="solicitacoes" element={<Solicitacoes />} />
+              <Route path="ponto" element={<Ponto />} />
               <Route path="usuarios" element={<RequireMaster><Usuarios /></RequireMaster>} />
               <Route path="auditoria" element={<RequireMaster><Auditoria /></RequireMaster>} />
               <Route path="fotos" element={<RequireMaster><FotosConfig /></RequireMaster>} />

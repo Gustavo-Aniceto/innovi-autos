@@ -4,6 +4,7 @@ import {
   moneyInput, normalizeText, parseMoney, splitInstallments, todayBR, validatePayment, monthToDate, dateToMonth, validateOutflow, toCsv,
 } from "../src/lib/finance";
 import { compact, niceMax } from "../src/lib/chartMath";
+import { formatDistance, formatMinutes, locationText, nextPunch, workedMinutes } from "../src/lib/ponto";
 
 let fail = 0;
 function eq(label: string, got: unknown, want: unknown) {
@@ -110,6 +111,25 @@ eq("saída sem data", validateOutflow({ amount: 5, date: "" }), "Informe a data.
 eq("saída descrição curta", validateOutflow({ amount: 5, date: "2026-11-12", text: "x", textLabel: "Ferramenta" }), "Ferramenta: de 2 a 200 caracteres.");
 eq("csv com BOM e vírgula decimal", toCsv([["Mês", "Valor"], ["nov/26", 1234.5]]), "\uFEFFMês;Valor\r\nnov/26;1234,50");
 eq("csv protege ; e aspas", toCsv([["a;b", 'diz "oi"']]), '\uFEFF"a;b";"diz ""oi"""');
+// ---- ponto
+const T = (h: string) => `2026-11-16T${h}:00-03:00`;
+eq("próximo ponto: dia vazio", nextPunch([]), "chegada");
+eq("próximo ponto: após chegada", nextPunch(["chegada"]), "saida_almoco");
+eq("próximo ponto: após volta", nextPunch(["chegada", "saida_almoco", "volta_almoco"]), "saida");
+eq("próximo ponto: saída sem almoço encerra", nextPunch(["chegada", "saida"]), null);
+eq("horas: dia completo", workedMinutes([{ kind: "chegada", punched_at: T("08:00") }, { kind: "saida_almoco", punched_at: T("12:00") }, { kind: "volta_almoco", punched_at: T("13:00") }, { kind: "saida", punched_at: T("18:00") }]), 540);
+eq("horas: sem almoço", workedMinutes([{ kind: "chegada", punched_at: T("08:00") }, { kind: "saida", punched_at: T("12:30") }]), 270);
+eq("horas: sem chegada", workedMinutes([{ kind: "saida", punched_at: T("18:00") }]), null);
+eq("horas: dia aberto sem 'agora'", workedMinutes([{ kind: "chegada", punched_at: T("08:00") }]), null);
+eq("horas: em andamento", workedMinutes([{ kind: "chegada", punched_at: T("08:00") }], new Date(T("10:15"))), 135);
+eq("horas: no almoço não conta", workedMinutes([{ kind: "chegada", punched_at: T("08:00") }, { kind: "saida_almoco", punched_at: T("12:00") }], new Date(T("12:40"))), 240);
+eq("horas: saiu sem bater a volta", workedMinutes([{ kind: "chegada", punched_at: T("08:00") }, { kind: "saida_almoco", punched_at: T("12:00") }, { kind: "saida", punched_at: T("18:00") }]), null);
+eq("minutos formatados", formatMinutes(545), "9h05");
+eq("minutos vazios", formatMinutes(null), "—");
+eq("distância m", formatDistance(180), "180 m");
+eq("distância km", formatDistance(1250), "1,3 km");
+eq("selo fora", locationText({ location_status: "fora", distance_m: 320 }).label, "Fora da oficina (320 m)");
+eq("selo ok", locationText({ location_status: "na_oficina", distance_m: 10 }).tone, "ready");
 
 console.log(fail ? `\n${fail} FALHA(S)` : "\nTodos os testes passaram.");
 process.exit(fail ? 1 : 0);

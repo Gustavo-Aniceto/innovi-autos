@@ -332,6 +332,47 @@ select pg_temp.expect_fail($t$select * from public.finance_os_profit()$t$, 'visi
 select pg_temp.expect_fail($t$select * from public.finance_report_monthly(current_date - 30, current_date)$t$, 'visitante consultando relatório');
 reset role;
 
+-- Ponto da equipe (opcional): batida com localização, alerta fora do raio, correção só pelo master
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select pg_temp.check($t$select (public.time_punch(-23.468473, -46.55284, 12)).kind = 'chegada'$t$, 'mecânico bate a chegada');
+select pg_temp.check($t$select location_status = 'na_oficina' and distance_m = 0 and user_id = auth.uid() and work_date = public.finance_today() and abs(extract(epoch from now() - punched_at)) < 5 from public.time_punches where kind = 'chegada'$t$, 'chegada na oficina, com hora do servidor');
+select pg_temp.check($t$select (p).kind = 'saida_almoco' and (p).location_status = 'fora' and (p).distance_m between 900 and 1300 from (select public.time_punch(-23.478473, -46.55284, 20) as p) x$t$, 'ponto a ~1 km fica registrado com alerta de fora da oficina');
+select pg_temp.check($t$select (p).kind = 'volta_almoco' and (p).location_status = 'sem_localizacao' and (p).latitude is null from (select public.time_punch(null, null, null) as p) x$t$, 'sem localização o ponto é salvo com alerta');
+select pg_temp.check($t$select (public.time_punch(-23.4685, -46.5528, 30)).kind = 'saida'$t$, 'quarto ponto é a saída');
+select pg_temp.expect_fail($t$select public.time_punch(-23.4685, -46.5528, 30)$t$, 'quinto ponto no mesmo dia');
+select pg_temp.expect_fail($t$insert into public.time_punches (user_id, work_date, kind, location_status) values (auth.uid(), current_date - 1, 'chegada', 'na_oficina')$t$, 'mecânico inserindo ponto direto na tabela');
+select pg_temp.expect_fail($t$update public.time_punches set punched_at = now() - interval '2 hours'$t$, 'mecânico alterando o horário do ponto');
+select pg_temp.check($t$with d as (delete from public.time_punches returning 1) select count(*) = 0 from d$t$, 'mecânico não exclui ponto');
+select pg_temp.expect_fail($t$select public.time_punch_admin_save(auth.uid(), current_date - 1, 'chegada', '08:00', 'esqueci')$t$, 'mecânico usando a correção do master');
+select pg_temp.expect_fail($t$select public.time_clock_set_location(0, 0, 50)$t$, 'mecânico mudando o local da oficina');
+select pg_temp.check($t$select count(*) = 0 from public.time_clock_settings$t$, 'mecânico não lê o local configurado');
+select pg_temp.expect_fail($t$select public.geo_distance_m(0,0,1,1)$t$, 'mecânico chamando a função interna de distância');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+select pg_temp.check($t$select count(*) = 0 from public.time_punches$t$, 'mecânico não vê o ponto do colega');
+select pg_temp.check($t$select (public.time_punch(-23.468473, -46.55284, 10, 'saida')).kind = 'saida'$t$, 'pode bater a saída direto (dia sem almoço)');
+select pg_temp.expect_fail($t$select public.time_punch(-23.468473, -46.55284, 10, 'chegada')$t$, 'bater chegada depois da saída');
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.check($t$select count(*) = 5 from public.time_punches$t$, 'master vê os pontos de todos');
+select pg_temp.expect_fail($t$select public.time_punch_admin_save('00000000-0000-0000-0000-00000000000b', public.finance_today() - 1, 'chegada', '08:00', '')$t$, 'correção sem motivo');
+select pg_temp.expect_fail($t$select public.time_punch_admin_save('00000000-0000-0000-0000-00000000000b', public.finance_today() + 1, 'chegada', '08:00', 'teste')$t$, 'ponto manual no futuro');
+select pg_temp.expect_ok($t$select public.time_punch_admin_save('00000000-0000-0000-0000-00000000000b', public.finance_today() - 1, 'chegada', '08:05', 'esqueceu de bater')$t$, 'master inclui ponto esquecido');
+select pg_temp.check($t$select location_status = 'manual' and edit_reason = 'esqueceu de bater' and (punched_at at time zone 'America/Sao_Paulo')::time = '08:05' from public.time_punches where work_date = public.finance_today() - 1$t$, 'ponto manual marcado, com motivo e hora de São Paulo');
+select pg_temp.expect_ok($t$select public.time_punch_admin_save('00000000-0000-0000-0000-00000000000b', public.finance_today() - 1, 'chegada', '08:10', 'ajuste')$t$, 'master corrige ponto existente');
+select pg_temp.check($t$select count(*) = 1 and bool_and((punched_at at time zone 'America/Sao_Paulo')::time = '08:10') from public.time_punches where work_date = public.finance_today() - 1$t$, 'correção substitui, não duplica');
+select pg_temp.expect_fail($t$select public.time_clock_set_location(-23.4, -46.5, 5)$t$, 'raio pequeno demais');
+select pg_temp.expect_ok($t$select public.time_clock_set_location(-23.4700, -46.5500, 80)$t$, 'master define o local da oficina');
+select pg_temp.check($t$select count(*) = 1 and bool_and(radius_m = 80 and latitude = -23.47) from public.time_clock_settings$t$, 'local continua em linha única');
+select pg_temp.check($t$select exists (select 1 from public.audit_logs where entity = 'time_punches' and action = 'update' and actor_id = auth.uid())$t$, 'correção de ponto auditada');
+select pg_temp.expect_ok($t$delete from public.time_punches where work_date = public.finance_today() - 1$t$, 'master exclui ponto lançado por engano');
+reset role;
+select set_config('request.jwt.claims', '', true);
+set local role anon;
+select pg_temp.expect_fail($t$select * from public.time_punches$t$, 'visitante lendo pontos');
+select pg_temp.expect_fail($t$select public.time_punch(null, null, null)$t$, 'visitante batendo ponto');
+reset role;
+
 -- Usuário desativado perde acesso na hora
 update public.profiles set active = false where login = 'mecanico1';
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
