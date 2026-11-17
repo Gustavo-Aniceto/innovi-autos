@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { approvedSum } from "./quotes";
 import type { DefectCategory, ExecutionStatus, ItemKind, OsStatus, QuoteStatus } from "./types";
 
 export interface HistoryOs {
@@ -31,9 +32,7 @@ export async function vehicleHistory(vehicleId: string): Promise<HistoryOs[]> {
   }));
 }
 
+/** Valor da OS no histórico: soma de todas as versões aprovadas do orçamento. */
 export function approvedTotal(os: HistoryOs): number | null {
-  const q = os.quotes.find((x) => x.status === "aprovado");
-  if (!q) return null;
-  const s = q.quote_items.filter((i) => i.approved).reduce((a, i) => a + Number(i.total), 0);
-  return Math.max(s - Number(q.discount_amount), 0);
+  return approvedSum(os.quotes);
 }

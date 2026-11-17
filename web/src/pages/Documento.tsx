@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useParams } from "react-router-dom";
+import { approvedQuotes, approvedSum, quoteTotals } from "../lib/quotes";
 import { formatDate, formatDateTime, formatPlate, maskCpf } from "../lib/format";
 import { brl, usePhotoCategories, useStaff } from "../lib/data";
 import {
@@ -25,17 +26,21 @@ export function Documento() {
   if (error) return <div className="page"><p className="form-error">{error}</p></div>;
   if (!b) return <div className="page"><p className="muted">Carregando…</p></div>;
   const photos = b.photos.filter((p) => (stagesFor[tipo] ?? []).includes(p.stage));
-  const quote = b.quotes.find((q) => q.status === "aprovado") ?? b.quotes[b.quotes.length - 1];
+  const approved = approvedQuotes(b.quotes);
+  // Sem versão aprovada, o documento mostra a versão mais recente (proposta em andamento).
+  const shownQuotes = approved.length > 0 ? approved : b.quotes.slice(-1);
 
   return (
     <DocShell title={TITLES[tipo] ?? "Documento"} number={b.os.number} photos={photos} categories={categories} defaultSelected={defaultSelected}>
       <Partes b={b} />
       {(tipo === "checkin" || tipo === "inspecao" || tipo === "os") && <Entrada b={b} staff={staff} />}
       {(tipo === "inspecao" || tipo === "os") && <Diagnosticos b={b} staff={staff} />}
-      {(tipo === "orcamento" || tipo === "os") && quote && <OrcamentoDoc q={quote} staff={staff} />}
+      {(tipo === "orcamento" || tipo === "os") && shownQuotes.map((q) => <OrcamentoDoc key={q.id} q={q} staff={staff} />)}
+      {(tipo === "orcamento" || tipo === "os") && approved.length > 1 && <TotalGeral quotes={approved} />}
       {(tipo === "os" || tipo === "checkout") && <Servicos b={b} />}
       {(tipo === "os" || tipo === "checkout") && <SaidaDoc b={b} staff={staff} />}
-      {tipo === "checkout" && quote?.status === "aprovado" && <OrcamentoTotal q={quote} />}
+      {tipo === "checkout" && approved.length === 1 && <OrcamentoTotal q={approved[0]} />}
+      {tipo === "checkout" && approved.length > 1 && <TotalGeral quotes={approved} />}
       {tipo === "checkin" && <>
         <p className="doc-note">O cliente declara ciência das condições do veículo descritas acima no momento do recebimento. Este documento não é orçamento nem autorização de serviço.</p>
         <Signatures left="Cliente" right="Responsável Innovi Autos" />
@@ -142,14 +147,26 @@ function OrcamentoDoc({ q, staff }: { q: Quote; staff: Record<string, string> })
 }
 
 function OrcamentoTotal({ q }: { q: Quote }) {
-  const items = q.quote_items ?? [];
-  const base = items.filter((i) => q.status !== "aprovado" || i.approved).reduce((s, i) => s + Number(i.total), 0);
+  const t = quoteTotals(q);
   return (
     <dl className="doc-totals">
-      <DocRow label={q.status === "aprovado" ? "Subtotal aprovado" : "Subtotal"} value={brl(base)} />
-      {Number(q.discount_amount) > 0 && <DocRow label="Desconto" value={`− ${brl(Number(q.discount_amount))}`} />}
-      <DocRow label="Total" value={<strong>{brl(Math.max(base - Number(q.discount_amount), 0))}</strong>} />
+      <DocRow label={q.status === "aprovado" ? "Subtotal aprovado" : "Subtotal"} value={brl(t.subtotal)} />
+      {t.discount > 0 && <DocRow label="Desconto" value={`− ${brl(t.discount)}`} />}
+      <DocRow label="Total" value={<strong>{brl(t.total)}</strong>} />
     </dl>
+  );
+}
+
+/** Mais de uma versão aprovada: cada versão é um acréscimo, então o total da OS é a soma. */
+function TotalGeral({ quotes }: { quotes: Quote[] }) {
+  return (
+    <section className="doc-section">
+      <h2>Total geral do orçamento</h2>
+      <dl className="doc-totals">
+        {quotes.map((q) => <DocRow key={q.id} label={`Versão ${q.version}`} value={brl(quoteTotals(q).total)} />)}
+        <DocRow label="Total geral" value={<strong>{brl(approvedSum(quotes) ?? 0)}</strong>} />
+      </dl>
+    </section>
   );
 }
 

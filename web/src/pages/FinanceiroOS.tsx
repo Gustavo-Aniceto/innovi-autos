@@ -74,7 +74,7 @@ export function FinanceiroOS() {
   const [planOpen, setPlanOpen] = useState(false);
   const [del, setDel] = useState<Payment | null>(null);
   const [delBusy, setDelBusy] = useState(false);
-  const [mode, setMode] = useState<"ultima" | "escolher">("ultima");
+  const [mode, setMode] = useState<"todas" | "escolher">("todas");
   const [picked, setPicked] = useState<string[]>([]);
   const [savingVersions, setSavingVersions] = useState(false);
 
@@ -83,9 +83,8 @@ export function FinanceiroOS() {
     try {
       const d = await fetchAll(id);
       setData(d); setError(null);
-      const latest = d.quotes[d.quotes.length - 1];
-      setMode(d.counted ? "escolher" : "ultima");
-      setPicked(d.counted ?? (latest ? [latest.id] : []));
+      setMode(d.counted ? "escolher" : "todas");
+      setPicked(d.counted ?? d.quotes.map((q) => q.id));
     } catch (e) { setError(friendlyError(e)); }
   }, [id]);
   useEffect(() => { reload(); }, [reload]);
@@ -225,11 +224,11 @@ export function FinanceiroOS() {
         )}
         {quotes.length > 1 && (
           <>
-            <p className="muted small">Há mais de uma versão aprovada. Por padrão vale só a última; se alguma versão for um acréscimo, marque quais somam.</p>
+            <p className="muted small">Há mais de uma versão aprovada. Cada nova versão traz serviços adicionais, então por padrão todas somam. Se alguma versão substituiu outra, marque só as que valem.</p>
             <div className="fin-pick" role="radiogroup" aria-label="Quais versões contam no valor">
-              <label className={mode === "ultima" ? "on" : ""}>
-                <input type="radio" name="vers" checked={mode === "ultima"} onChange={() => setMode("ultima")} />
-                <span>Só a última versão aprovada (versão {latest.version}: <strong>{brl(latest.total)}</strong>)</span>
+              <label className={mode === "todas" ? "on" : ""}>
+                <input type="radio" name="vers" checked={mode === "todas"} onChange={() => setMode("todas")} />
+                <span>Somar todas as versões aprovadas (<strong>{brl(round2(quotes.reduce((t, q) => t + q.total, 0)))}</strong>)</span>
               </label>
               <label className={mode === "escolher" ? "on" : ""}>
                 <input type="radio" name="vers" checked={mode === "escolher"} onChange={() => setMode("escolher")} />
@@ -248,7 +247,7 @@ export function FinanceiroOS() {
               </div>
             )}
             <div className="form-actions">
-              <button className="btn btn-primary" onClick={saveVersions} disabled={savingVersions || (mode === "ultima" && data.counted === null)}>
+              <button className="btn btn-primary" onClick={saveVersions} disabled={savingVersions || (mode === "todas" && data.counted === null)}>
                 {savingVersions ? "Salvando…" : "Salvar escolha"}
               </button>
             </div>

@@ -4,6 +4,7 @@ import {
   moneyInput, normalizeText, parseMoney, splitInstallments, todayBR, validatePayment, monthToDate, dateToMonth, validateOutflow, toCsv,
 } from "../src/lib/finance";
 import { compact, niceMax } from "../src/lib/chartMath";
+import { approvedQuotes, approvedSum, quoteTotals } from "../src/lib/quotes";
 import { formatDistance, formatMinutes, locationText, nextPunch, workedMinutes } from "../src/lib/ponto";
 
 let fail = 0;
@@ -130,6 +131,17 @@ eq("distância m", formatDistance(180), "180 m");
 eq("distância km", formatDistance(1250), "1,3 km");
 eq("selo fora", locationText({ location_status: "fora", distance_m: 320 }).label, "Fora da oficina (320 m)");
 eq("selo ok", locationText({ location_status: "na_oficina", distance_m: 10 }).tone, "ready");
+// ---- versões do orçamento (acréscimos somam)
+const v1 = { status: "aprovado", version: 1, discount_amount: 0, quote_items: [{ total: 399.9, approved: true }] };
+const v2 = { status: "aprovado", version: 2, discount_amount: "0", quote_items: [{ total: "250", approved: true }, { total: 80, approved: false }] };
+const v3 = { status: "em_elaboracao", version: 3, discount_amount: 0, quote_items: [{ total: 100, approved: false }] };
+eq("vídeo do cliente: v1 + v2 = 649,90", approvedSum([v2, v1, v3]), 649.9);
+eq("item recusado não entra", quoteTotals(v2).total, 250);
+eq("versão em elaboração soma tudo", quoteTotals(v3).total, 100);
+eq("desconto por versão", quoteTotals({ status: "aprovado", version: 1, discount_amount: 20, quote_items: [{ total: 100, approved: true }] }).total, 80);
+eq("desconto nunca deixa negativo", quoteTotals({ status: "aprovado", version: 1, discount_amount: 200, quote_items: [{ total: 100, approved: true }] }).total, 0);
+eq("ordem das versões aprovadas", approvedQuotes([v2, v3, v1]).map((q) => q.version), [1, 2]);
+eq("sem aprovada", approvedSum([v3]), null);
 
 console.log(fail ? `\n${fail} FALHA(S)` : "\nTodos os testes passaram.");
 process.exit(fail ? 1 : 0);

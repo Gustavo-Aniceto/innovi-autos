@@ -7,16 +7,19 @@ import { EXECUTION_STATUS, ITEM_KINDS, type ExecutionStatus, type ItemKind } fro
 import { SelectField, TextField } from "../../components/Field";
 import { useToast } from "../../components/Toast";
 import { isClosed, type OsBundle } from "./useOs";
+import { approvedQuotes } from "../../lib/quotes";
 
 export function Execucao({ b, staff, reload }: { b: OsBundle; staff: Record<string, string>; reload: () => void }) {
   const { profile } = useAuth();
   const toast = useToast();
   const closed = isClosed(b.os.status);
-  const approved = b.quotes.find((q) => q.status === "aprovado");
+  const approvedList = approvedQuotes(b.quotes);
+  const approved = approvedList.length > 0;
   const [f, setF] = useState({ kind: "servico" as ItemKind, description: "", quantity: "1", status: "executado" as ExecutionStatus, notes: "" });
   const [busy, setBusy] = useState(false);
   const imported = new Set(b.services.map((s) => s.quote_item_id).filter(Boolean));
-  const toImport = (approved?.quote_items ?? []).filter((i) => !imported.has(i.id));
+  // Todas as versões aprovadas: cada nova versão traz serviços adicionais.
+  const toImport = approvedList.flatMap((q) => q.quote_items ?? []).filter((i) => !imported.has(i.id));
 
   async function insert(rows: Record<string, unknown>[], ok: string) {
     setBusy(true);
